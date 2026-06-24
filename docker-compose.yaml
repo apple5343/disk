@@ -1,0 +1,309 @@
+services:
+  api-gateway:
+    build: ./services/api-gateway
+    container_name: api-gateway
+    env_file:
+      - ./config/docker.env
+    ports:
+      - "${GW_PORT}:${GW_PORT}"
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      file-storage:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:${GW_PORT}/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - disknet
+
+  auth-service:
+    build: ./services/auth-service
+    container_name: auth-service
+    env_file:
+      - ./config/docker.env
+    ports:
+      - "${AUTH_SVC_PORT}:${AUTH_SVC_PORT}"
+    depends_on:
+      user-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:${AUTH_SVC_PORT}/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - disknet
+  
+  file-data-service:
+    build:
+      context: ./services/file-data-service
+      target: file-data
+    container_name: file-data-service
+    ports:
+      - "${FILE_DATA_HTTP_PORT}:${FILE_DATA_HTTP_PORT}"
+    env_file:
+      - ./config/docker.env
+    depends_on:
+      filedata_migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${FILE_DATA_HTTP_PORT}/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - disknet
+  
+  filedata_migrate:
+    build:
+      context: ./services/file-data-service
+      target: migrate
+    container_name: filedata_migrate
+    env_file:
+      - ./config/docker.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - disknet
+  
+  file-storage:
+    build:
+      context: ./services/file-storage-service
+      target: file-storage
+    container_name: file-storage-service
+    ports:
+      - "${FILE_STORAGE_HTTP_PORT}:${FILE_STORAGE_HTTP_PORT}"
+    env_file:
+      - ./config/docker.env
+    depends_on:
+      minio:
+        condition: service_healthy
+      file-data-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${FILE_STORAGE_HTTP_PORT}/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - disknet
+
+  user-service:
+    build:
+      context: ./services/user-service.v2
+      target: user-service
+    container_name: user-service
+    ports:
+      - "${USER_SVC_PORT}:${USER_SVC_PORT}"
+    env_file:
+      - ./config/docker.env
+    depends_on:
+      user-migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${USER_SVC_PORT}/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - disknet
+  
+  user-migrate:
+    build:
+      context: ./services/user-service.v2
+      target: user-migrate
+    container_name: user-migrate
+    env_file:
+      - ./config/docker.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - disknet
+
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    ports:
+      - "${NGINX_PORT}:${NGINX_PORT}"
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    volumes:
+      - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./web-client:/usr/share/nginx/html/web-client:ro
+      - ./docs:/usr/share/docs:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "nc", "-vz", "-w1", "localhost", "80"]
+      interval: 1s
+      timeout: 1s
+      retries: 30
+    networks:
+      - disknet
+
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_REGION: ${MINIO_REGION}
+    ports:
+      - "${MINIO_PORT}:9000"
+    volumes:
+      - minio_data:/data
+      - ./scripts/init-minio.sh:/init-minio.sh
+    entrypoint: /bin/sh
+    command: -c "chmod +x /init-minio.sh && /init-minio.sh && /usr/bin/docker-entrypoint.sh server /data --console-address ':9001'"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    networks:
+      - disknet
+  
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: /bin/sh
+    command: -c "
+      mc alias set myminio http://minio:9000 minioadmin minioadmin &&
+      if ! mc ls myminio/user-files >/dev/null 2>&1; then
+        mc mb myminio/user-files &&
+        echo 'Bucket user-files создан.';
+      else
+        echo 'Bucket user-files уже существует.';
+      fi
+      "
+    volumes:
+      - ./scripts:/scripts:ro
+    networks:
+      - disknet
+  
+  postgres:
+    image: postgres:14
+    container_name: postgres
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "${DB_PORT}:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${DB_USER}"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    networks:
+      - disknet
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    hostname: redis
+    ports:
+      - "${REDIS_PORT}:6379"
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+    restart: always
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: [ "CMD", "redis-cli", "--raw", "incr", "ping" ]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - disknet
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    container_name: zookeeper
+    hostname: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2128
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - ${KAFKA_ZK_PORT}:2128
+    healthcheck:
+      test: ["CMD", "echo", "ruok", "|", "nc", "localhost", "2128"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - disknet
+
+  kafka:
+    image: confluentinc/cp-kafka:7.3.2
+    hostname: kafka
+    container_name: kafka
+    ports:
+      - "${KAFKA_PORT}:9092"
+    environment:
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_ZOOKEEPER_CONNECT: "zookeeper:2128"
+      KAFKA_BROKER_ID: 1
+      KAFKA_LOG4J_LOGGERS: "kafka.controller=INFO,kafka.producer.async.DefaultEventHandler=INFO,state.change.logger=INFO"
+      KAFKA_AUTHORIZER_CLASS_NAME: kafka.security.authorizer.AclAuthorizer
+      KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND: "true"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - disknet
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.3.2
+    depends_on:
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./scripts:/scripts
+    environment:
+      KAFKA_BROKER: kafka:9092
+    command: ["/bin/bash", "/scripts/init-kafka.sh"]
+    networks:
+      - disknet
+
+volumes:
+  minio_data:
+  postgres_data:
+  redis_data:
+  kafka_data:
+
+networks:
+  disknet:
+    driver: bridge

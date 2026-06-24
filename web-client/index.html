@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>YDiskClone</title>
+  <style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: sans-serif; background: #f5f7fa; padding: 20px; }
+
+#app { max-width: 900px; margin: 0 auto; }
+
+#auth { background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+#auth input { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ddd; border-radius: 4px; }
+#auth button { width: 100%; padding: 12px; background: #007bff; color: white; border: none; border-radius: 4px; margin-top: 10px; cursor: pointer; }
+#auth a { display: block; text-align: center; margin-top: 15px; color: #007bff; text-decoration: none; }
+
+header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+header h1 { font-size: 1.4rem; }
+button { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; }
+#logout { background: #dc3545; color: white; }
+#create-folder { background: #28a745; color: white; margin-right: 10px; }
+
+#drop-zone { border: 2px dashed #007bff; border-radius: 8px; padding: 40px; text-align: center; margin-bottom: 20px; cursor: pointer; }
+#drop-zone:hover { background: #e9f0ff; }
+
+.item { display: flex; justify-content: space-between; padding: 12px; background: white; border-radius: 6px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.item-name { font-weight: 500; cursor: pointer; }
+.folder .item-name { color: #28a745; }
+.file .item-name { color: #007bff; }
+.item-name:hover { text-decoration: underline; }
+.item-actions button { margin-left: 8px; font-size: 0.9em; padding: 4px 8px; }
+
+.folder-modal {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center;
+}
+.modal-content {
+  background: white; padding: 20px; border-radius: 8px; width: 300px;
+}
+.modal-content input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #ddd; border-radius: 4px; }
+.modal-content button { margin: 5px; }
+
+.hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="auth" class="hidden">
+      <h2 id="auth-title">Регистрация</h2>
+      <form id="auth-form">
+        <input type="text" id="name" placeholder="Имя" />
+        <input type="text" id="login" placeholder="Логин" required />
+        <input type="password" id="password" placeholder="Пароль" required />
+        <button type="submit">Продолжить</button>
+        <p><a href="#" id="toggle-auth">Уже есть аккаунт? Войти</a></p>
+      </form>
+    </div>
+
+    <div id="main" class="hidden">
+      <header>
+        <h1 id="current-path">/</h1>
+        <div>
+          <button id="create-folder">Новая папка</button>
+          <button id="logout">Выйти</button>
+        </div>
+      </header>
+
+      <div id="drop-zone">
+        <p>Перетащите файлы сюда или нажмите для выбора</p>
+        <input type="file" id="file-input" multiple hidden />
+      </div>
+
+      <div id="content"></div>
+    </div>
+
+    <div id="folder-modal" class="folder-modal hidden">
+      <div class="modal-content">
+        <h3>Создать папку</h3>
+        <input type="text" id="folder-name" placeholder="Имя папки" />
+        <div>
+          <button id="create-folder-btn">Создать</button>
+          <button id="cancel-folder-btn">Отмена</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+const API_BASE = '/api/v1';
+let jwtToken = localStorage.getItem('jwtToken');
+let currentFolderId = null; // null = root
+
+// DOM
+const authDiv = document.getElementById('auth');
+const mainDiv = document.getElementById('main');
+const contentDiv = document.getElementById('content');
+const currentPathEl = document.getElementById('current-path');
+const folderModal = document.getElementById('folder-modal');
+
+// Init
+document.addEventListener('DOMContentLoaded', () => {
+  if (jwtToken) {
+    showMain();
+    loadRoot();
+  } else {
+    showAuth();
+  }
+});
+
+// Auth toggle
+document.getElementById('toggle-auth').addEventListener('click', (e) => {
+  e.preventDefault();
+  const isRegister = document.getElementById('auth-title').textContent === 'Регистрация';
+  document.getElementById('auth-title').textContent = isRegister ? 'Вход' : 'Регистрация';
+  document.getElementById('name').style.display = isRegister ? 'none' : 'block';
+  document.getElementById('toggle-auth').textContent = isRegister
+    ? 'Нет аккаунта? Зарегистрироваться'
+    : 'Уже есть аккаунт? Войти';
+});
+
+// Auth form
+document.getElementById('auth-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const isRegister = document.getElementById('auth-title').textContent === 'Регистрация';
+  const login = document.getElementById('login').value;
+  const password = document.getElementById('password').value;
+  const name = document.getElementById('name').value;
+
+  try {
+    let res;
+    if (isRegister) {
+      res = await apiPost('/auth/register', { name, login, password });
+    } else {
+      res = await apiPost('/auth/login', { login, password });
+      jwtToken = res.token;
+      localStorage.setItem('jwtToken', jwtToken);
+    }
+    showMain();
+    loadRoot();
+  } catch (err) {
+    alert('Ошибка: ' + (err.message || 'Неверные данные'));
+  }
+});
+
+// Logout
+document.getElementById('logout').addEventListener('click', () => {
+  jwtToken = null;
+  localStorage.removeItem('jwtToken');
+  showAuth();
+});
+
+// Create folder modal
+document.getElementById('create-folder').addEventListener('click', () => {
+  document.getElementById('folder-name').value = '';
+  folderModal.classList.remove('hidden');
+});
+
+document.getElementById('cancel-folder-btn').addEventListener('click', () => {
+  folderModal.classList.add('hidden');
+});
+
+document.getElementById('create-folder-btn').addEventListener('click', async () => {
+  const name = document.getElementById('folder-name').value.trim();
+  if (!name) return;
+  
+  try {
+    const payload = { name };
+    if (currentFolderId) payload.parent_id = currentFolderId;
+    await apiPost('/folders', payload);
+    folderModal.classList.add('hidden');
+    loadFolderContent(currentFolderId);
+  } catch (err) {
+    alert('Ошибка создания папки: ' + (err.message || 'Попробуйте позже'));
+  }
+});
+
+// Upload
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+
+dropZone.addEventListener('click', () => fileInput.click());
+dropZone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  dropZone.style.backgroundColor = '#e9f0ff';
+});
+dropZone.addEventListener('dragleave', () => dropZone.style.backgroundColor = '');
+dropZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropZone.style.backgroundColor = '';
+  if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files);
+});
+
+fileInput.addEventListener('change', (e) => {
+  if (e.target.files.length) uploadFiles(e.target.files);
+  fileInput.value = '';
+});
+
+async function uploadFiles(files) {
+  const formData = new FormData();
+  for (let file of files) {
+    formData.append('file', file);
+  }
+  if (currentFolderId) {
+    formData.append('folder_id', currentFolderId);
+  }
+  try {
+    await apiPost('/file', formData, true);
+    loadFolderContent(currentFolderId);
+  } catch (err) {
+    alert('Ошибка загрузки: ' + (err.message || 'Попробуйте позже'));
+  }
+}
+
+// Navigation
+async function loadRoot() {
+  currentFolderId = null;
+  currentPathEl.textContent = '/';
+  const root = await apiGet('/folders');
+  loadFolderContent(root.id);
+}
+
+async function loadFolderContent(folderId) {
+  try {
+    let res = await apiGet(`/folders/tree/${folderId || 'root'}`);
+    let fold = await apiGet(`/folders/${folderId}`);
+    if (!fold.is_root) {
+      fold.name = "..";
+      fold.id = fold.parent_id;
+      const lastIndex = fold.full_path.lastIndexOf("\/");
+      const result = lastIndex !== -1 ? fold.full_path.substring(0, lastIndex) : fold.full_path;
+      if(result == "") {
+         fold.full_path = "\/";
+      } else {
+         fold.full_path = result;
+      }
+      res.folders = [fold, ...res.folders];
+    }
+    renderContent(res.folders, res.files);
+  } catch (err) {
+    if (err.status === 401) {
+      alert('Сессия истекла. Войдите снова.');
+      jwtToken = null;
+      localStorage.removeItem('jwtToken');
+      showAuth();
+    } else {
+      alert('Ошибка загрузки: ' + (err.message || 'Попробуйте позже'));
+    }
+  }
+}
+
+async function renderContent(folders, files) {
+  contentDiv.innerHTML = '';
+
+  // Folders
+  folders.forEach(folder => {
+    const div = createItem('folder', folder.name, () => {
+      currentFolderId = folder.id;
+      currentPathEl.textContent = folder.full_path;
+      loadFolderContent(folder.id);
+    });
+    contentDiv.appendChild(div);
+  });
+
+  // Files
+  files.forEach(file => {
+    const div = createItem('file', file.file_name, () => downloadFile(file.id));
+    const actions = div.querySelector('.item-actions');
+    const delBtn = document.createElement('button');
+    delBtn.textContent = 'Удалить';
+    delBtn.onclick = (e) => {
+      e.stopPropagation();
+      deleteFile(file.id);
+    };
+    actions.appendChild(delBtn);
+    contentDiv.appendChild(div);
+  });
+}
+
+function createItem(type, name, onClick) {
+  const div = document.createElement('div');
+  div.className = `item ${type}`;
+  div.innerHTML = `
+    <span class="item-name">${name}</span>
+    <div class="item-actions"></div>
+  `;
+  div.querySelector('.item-name').addEventListener('click', onClick);
+  return div;
+}
+
+// File actions
+//function downloadFile(fileId) {
+//  window.location.href = `${API_BASE}/file/${fileId}`;
+//}
+async function downloadFile(fileId) {
+  try {
+    const response = await fetch(`${API_BASE}/file/${fileId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${jwtToken}`
+      }
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.message || err.msg || 'Не удалось скачать файл');
+    }
+
+    let filename = `file-${fileId}`;
+    const disposition = response.headers.get('Content-Disposition');
+    if (disposition && disposition.includes('filename=')) {
+      filename = disposition.split('filename=')[1].replace(/["']/g, '');
+    }
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    alert('Ошибка: ' + (err.message || 'Проверьте соединение'));
+  }
+}
+
+async function deleteFile(fileId) {
+  if (!confirm('Удалить файл?')) return;
+  try {
+    await apiDelete(`/files/${fileId}`);
+    loadFolderContent(currentFolderId);
+  } catch (err) {
+    alert('Ошибка удаления: ' + (err.message || 'Попробуйте позже'));
+  }
+}
+
+// API helpers
+async function apiGet(path) {
+  const res = await fetch(API_BASE + path, {
+    headers: { 'Authorization': `Bearer ${jwtToken}` }
+  });
+  if (!res.ok) throw { status: res.status, message: await getErrorMessage(res) };
+  return await res.json();
+}
+
+async function apiPost(path, body, isMultipart = false) {
+  const headers = { 'Authorization': `Bearer ${jwtToken}` };
+  if (!isMultipart && typeof body === 'object') {
+    headers['Content-Type'] = 'application/json';
+    body = JSON.stringify(body);
+  }
+
+  const res = await fetch(API_BASE + path, {
+    method: 'POST',
+    headers,
+    body
+  });
+
+  if (!res.ok) throw { status: res.status, message: await getErrorMessage(res) };
+  if (res.status === 204) return;
+  return await res.json();
+}
+
+async function apiDelete(path) {
+  const res = await fetch(API_BASE + path, {
+    method: 'DELETE',
+    headers: { 'Authorization': `Bearer ${jwtToken}` }
+  });
+  if (!res.ok) throw { status: res.status, message: await getErrorMessage(res) };
+}
+
+async function getErrorMessage(res) {
+  try {
+    const err = await res.json();
+    return err.message || err.error || err.msg || 'Ошибка запроса';
+  } catch {
+    return res.statusText;
+  }
+}
+
+// UI
+function showAuth() {
+  mainDiv.classList.add('hidden');
+  authDiv.classList.remove('hidden');
+}
+
+function showMain() {
+  authDiv.classList.add('hidden');
+  mainDiv.classList.remove('hidden');
+}
+  </script>
+</body>
+</html>

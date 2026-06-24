@@ -1,0 +1,119 @@
+image: golang:1.24
+
+stages:
+  - lint
+  - test
+  - build
+
+variables:
+  CGO_ENABLED: "0"
+  GOPROXY: "https://proxy.golang.org,direct"
+  GOCACHE: "${CI_PROJECT_DIR}/.cache/go-build"
+  GOMODCACHE: "${CI_PROJECT_DIR}/.cache/gomod"
+
+cache:
+  key:
+    files:
+      - go.sum
+  paths:
+    - .cache/
+
+before_script:
+  - go version
+  - apt-get update && apt-get install -y bc
+
+lint:
+  stage: lint
+  image: golangci/golangci-lint:latest-alpine
+  script:
+    - |
+      find ./services -name 'go.mod' -not -path '*/vendor/*' | while read gomod_file; do
+        module_dir=$(dirname "$gomod_file")
+        echo "Linting module in: $module_dir"
+        (cd "$module_dir" && golangci-lint run --timeout 5m)
+        if [ $? -ne 0 ]; then
+            echo "Linting failed for $module_dir"
+            exit 1
+        fi
+      done
+  allow_failure: false
+  rules:
+    - if: '$CI_COMMIT_BRANCH'
+
+test:
+  stage: test
+  script:
+    - |
+      total_cover=0
+      total_files=0
+      found=0
+
+      while IFS= read -r -d '' moddir; do
+        found=1
+        echo "Testing module in: $moddir"
+        (cd "$moddir" && go test -v -coverprofile=coverage.out -covermode=atomic ./...)
+        if [ $? -ne 0 ]; then
+          echo "Tests failed in $moddir"
+          exit 1
+        fi
+
+        if [ -f "$moddir/coverage.out" ] && [ -s "$moddir/coverage.out" ]; then
+          # Извлекаем общее покрытие для модуля
+          cover=$(cd "$moddir" && go tool cover -func=coverage.out | tail -1 | awk '{print $3}' | tr -d '%')
+          if [ -n "$cover" ] && [ "$cover" != "0.0" ]; then
+            total_cover=$(echo "$total_cover + $cover" | bc -l)
+            total_files=$((total_files + 1))
+            echo "Coverage in $moddir: ${cover}%"
+          fi
+        else
+          echo "No coverage data in $moddir"
+        fi
+      done < <(find ./services -name 'go.mod' -not -path './.cache/*' -not -path './vendor/*' -printf '%h\0')
+
+      if [ $found -eq 0 ]; then
+        echo "No Go modules found"
+        exit 1
+      fi
+
+      if [ $total_files -eq 0 ]; then
+        echo "No test coverage data collected"
+        exit 1
+      fi
+
+      avg=$(echo "scale=2; $total_cover / $total_files" | bc -l)
+      echo "Average test coverage across services: ${avg}%"
+
+      if (( $(echo "$avg < 30.0" | bc -l) )); then
+        echo "Coverage is below 30% threshold"
+        exit 1
+      else
+        echo "Coverage meets minimum requirement (≥30%)"
+      fi
+  rules:
+    - if: '$CI_COMMIT_BRANCH'
+
+build:
+  stage: build
+  script:
+    - |
+      while IFS= read -r -d '' moddir; do
+        echo "Building service in: $moddir"
+        main_file=$(find "$moddir" -name 'main.go' -not -path '*/vendor/*' -maxdepth 3 | head -n1)
+        if [ -n "$main_file" ]; then
+          service_name=$(basename "$moddir")
+          out_dir="$moddir/bin"
+          mkdir -p "$out_dir"
+          pkg_path=$(realpath --relative-to="$moddir" "$(dirname "$main_file")")
+          echo "Building package: ./$pkg_path"
+          (cd "$moddir" && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o "$out_dir/$service_name" "./$pkg_path")
+          echo "Built: $out_dir/$service_name"
+        else
+          echo "No main.go found in $moddir — skipping build"
+        fi
+      done < <(find ./services -name 'go.mod' -not -path './.cache/*' -not -path './vendor/*' -printf '%h\0')
+  artifacts:
+    paths:
+      - "**/bin/*"
+    expire_in: 1 week
+  rules:
+    - if: '$CI_COMMIT_BRANCH'

@@ -1,0 +1,4 @@
+with-expecter: true
+inpackage-suffix: true
+all: true
+recursive: true
