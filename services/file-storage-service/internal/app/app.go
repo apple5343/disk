@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	StopTimeout = time.Hour
+	StopTimeout = time.Minute * 20
 )
 
 func NewApp() *fx.App {

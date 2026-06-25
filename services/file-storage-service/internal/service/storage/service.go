@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"log"
 	"storage/internal/adapter"
 	filedata "storage/internal/infrastructure/file-data"
 	"storage/internal/repository"
@@ -46,7 +47,17 @@ func NewService(
 	}
 }
 
-func (s *storageService) Close(_ context.Context) error {
-	s.wg.Wait()
+func (s *storageService) Close(ctx context.Context) error {
+	waitCh := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(waitCh)
+	}()
+	select {
+	case <-waitCh:
+		log.Println("storage service closed successfully")
+	case <-ctx.Done():
+		log.Println("storage service closed with timeout")
+	}
 	return nil
 }

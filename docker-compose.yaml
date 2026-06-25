@@ -91,6 +91,7 @@ services:
         condition: service_healthy
       file-data-service:
         condition: service_healthy
+    stop_grace_period: 20m
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${FILE_STORAGE_HTTP_PORT}/health"]
       interval: 10s
