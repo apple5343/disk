@@ -8,6 +8,8 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o api-gateway ./cmd/api-gateway/main.go
 
 FROM alpine:latest
+
+RUN apk add --no-cache curl
 WORKDIR /app
 COPY --from=builder /app/api-gateway .
 

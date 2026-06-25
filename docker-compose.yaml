@@ -12,10 +12,10 @@ services:
       file-storage:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:${GW_PORT}/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:${GW_PORT}/health"]
       interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 10
       start_period: 10s
     networks:
       - disknet
@@ -31,10 +31,10 @@ services:
       user-service:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:${AUTH_SVC_PORT}/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:${AUTH_SVC_PORT}/health"]
       interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 10
       start_period: 10s
     networks:
       - disknet
@@ -52,6 +52,8 @@ services:
       filedata_migrate:
         condition: service_completed_successfully
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${FILE_DATA_HTTP_PORT}/health"]

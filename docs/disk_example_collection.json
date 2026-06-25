@@ -1,0 +1,416 @@
+{
+  "info": {
+    "_postman_id": "9f3b0353-912c-4413-ac07-c664bfde8a9e",
+    "name": "disk",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "56035568",
+    "_collection_link": "https://go.postman.co/collection/56035568-9f3b0353-912c-4413-ac07-c664bfde8a9e?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "Регистрация",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"name\": \"{{name}}\",\n    \"login\": \"{{login}}\",\n    \"password\": \"{{password}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:80/api/v1/auth/register",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "80",
+          "path": [
+            "api",
+            "v1",
+            "auth",
+            "register"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Вход",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "let data = pm.response.json();",
+              "pm.collectionVariables.set(\"token\", data.token);"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"login\": \"{{login}}\",\n    \"password\": \"{{password}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:80/api/v1/auth/login",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "80",
+          "path": [
+            "api",
+            "v1",
+            "auth",
+            "login"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Получение корневой папки",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "let data = pm.response.json();",
+              "pm.collectionVariables.set(\"root_folder_id\", data.id);"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:8003/folders",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8003",
+          "path": [
+            "folders"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Создание папки",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "let data = pm.response.json();",
+              "pm.collectionVariables.set(\"child_folder_id\", data.id);"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"name\": \"my_folder\",\n    \"parent_id\": \"{{root_folder_id}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "http://localhost:8003/folders",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8003",
+          "path": [
+            "folders"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Получение папок",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:8003/folders/tree/{{root_folder_id}}",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8003",
+          "path": [
+            "folders",
+            "tree",
+            "{{root_folder_id}}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Загрузка файла",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "let data = pm.response.json();",
+              "pm.collectionVariables.set(\"key\", data.key);"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "file",
+              "type": "file",
+              "uuid": "0967103c-4064-4774-ab01-a9cc1d149d26",
+              "description": "Выберете файл",
+              "value": null
+            },
+            {
+              "key": "folder_id",
+              "value": "{{child_folder_id}}",
+              "type": "text",
+              "uuid": "882a3286-aa17-4629-88b9-4809eb9321a5"
+            }
+          ]
+        },
+        "url": {
+          "raw": "http://localhost:8004/file",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8004",
+          "path": [
+            "file"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Информация о файле",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:8003/files/{{key}}",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8003",
+          "path": [
+            "files",
+            "{{key}}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Отмена загрузки",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:8004/terminate/{{key}}",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8004",
+          "path": [
+            "terminate",
+            "{{key}}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Скачивание файла",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:8004/file/{{key}}",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8004",
+          "path": [
+            "file",
+            "{{key}}"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Удаление файла",
+      "request": {
+        "method": "DELETE",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}",
+            "type": "text"
+          }
+        ],
+        "url": {
+          "raw": "http://localhost:8004/file/{{key}}",
+          "protocol": "http",
+          "host": [
+            "localhost"
+          ],
+          "port": "8004",
+          "path": [
+            "file",
+            "{{key}}"
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "packages": {},
+        "requests": {},
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "name",
+      "value": "user"
+    },
+    {
+      "key": "login",
+      "value": "user"
+    },
+    {
+      "key": "password",
+      "value": "user"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "root_folder_id",
+      "value": ""
+    },
+    {
+      "key": "child_folder_id",
+      "value": ""
+    },
+    {
+      "key": "key",
+      "value": ""
+    }
+  ]
+}

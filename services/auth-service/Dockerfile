@@ -8,6 +8,9 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o auth-service ./cmd/auth-service/main.go
 
 FROM alpine:latest
+
+RUN apk add --no-cache curl
+
 WORKDIR /app
 COPY --from=builder /app/auth-service .
 
